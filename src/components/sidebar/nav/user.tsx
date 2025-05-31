@@ -23,13 +23,29 @@ import {
 } from "@/components/ui/sidebar";
 import { NavUserLoading } from "./loading";
 import { Suspense } from "react";
-import { getUser } from "@/auth/server";
-import { User } from "@/auth";
+import { auth } from "@/auth";
+import { headers } from "next/headers";
+import { db } from "@/db";
+import { user as userSchema } from "@/db/schema";
+import { eq } from "drizzle-orm";
+import { UpgradeButton } from "@/components/upgrade-button";
+import { PlanType } from "@/lib/stripe";
 
 async function NavUserAsync() {
-  const user = await getUser();
-  if (!user) return null;
-  return <NavUserComp user={user} />;
+  const session = await auth.api.getSession({
+    headers: await headers(),
+  });
+
+  if (!session?.user) return null;
+
+  // Get full user data including subscription info
+  const fullUser = await db.query.user.findFirst({
+    where: eq(userSchema.id, session.user.id),
+  });
+
+  if (!fullUser) return null;
+
+  return <NavUserComp user={fullUser} />;
 }
 
 export function NavUser() {
@@ -40,7 +56,12 @@ export function NavUser() {
   );
 }
 
-export function NavUserComp({ user }: { user: User }) {
+export function NavUserComp({
+  user,
+}: {
+  user: typeof userSchema.$inferSelect;
+}) {
+  const currentPlan: PlanType = user.plan;
   return (
     <SidebarMenu>
       <SidebarMenuItem>
@@ -85,10 +106,21 @@ export function NavUserComp({ user }: { user: User }) {
             </DropdownMenuLabel>
             <DropdownMenuSeparator />
             <DropdownMenuGroup>
-              <DropdownMenuItem>
-                <Sparkles />
-                Upgrade to Pro
-              </DropdownMenuItem>
+              {!["pro", "enterprise"].includes(currentPlan) && (
+                <DropdownMenuItem asChild>
+                  <UpgradeButton
+                    planType={currentPlan === "free" ? "basic" : "pro"}
+                    variant="ghost"
+                    size="sm"
+                    className="w-full justify-start h-auto font-normal"
+                  >
+                    <Sparkles className="mr-2 h-4 w-4" />
+                    {currentPlan === "free"
+                      ? "Upgrade to Basic"
+                      : "Upgrade to Pro"}
+                  </UpgradeButton>
+                </DropdownMenuItem>
+              )}
             </DropdownMenuGroup>
             <DropdownMenuSeparator />
             <DropdownMenuGroup>
